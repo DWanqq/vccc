@@ -1,0 +1,475 @@
+<?php
+session_start();
+include "includes/ketnoi.php";
+
+function set_message($type, $text){
+    $_SESSION['message'] = [
+        "type" => $type,
+        "text" => $text
+    ];
+    header("Location: auth.php");
+    exit();
+}
+
+function is_tnut_email($email){
+    return preg_match('/^[a-zA-Z0-9._%+-]+@tnut\.edu\.vn$/', $email);
+}
+
+/* ĐĂNG KÝ */
+if(isset($_POST['dangky'])){
+    $hoten = trim($_POST['hoten']);
+    $email = trim($_POST['email']);
+    $matkhau = $_POST['matkhau'];
+    $nhaplai = $_POST['nhaplai'];
+
+    if($hoten == "" || $email == "" || $matkhau == "" || $nhaplai == ""){
+        set_message("error", "Vui lòng nhập đầy đủ thông tin đăng ký");
+    }
+
+    if(!is_tnut_email($email)){
+        set_message("error", "Chỉ cho phép đăng ký email @tnut.edu.vn");
+    }
+
+    if($matkhau !== $nhaplai){
+        set_message("error", "Mật khẩu nhập lại không khớp");
+    }
+
+    $check = mysqli_prepare($conn, "SELECT id FROM nguoidung WHERE email = ?");
+    mysqli_stmt_bind_param($check, "s", $email);
+    mysqli_stmt_execute($check);
+    $result = mysqli_stmt_get_result($check);
+
+    if(mysqli_num_rows($result) > 0){
+        set_message("error", "Email này đã tồn tại");
+    }
+
+    $hash = password_hash($matkhau, PASSWORD_DEFAULT);
+
+    $stmt = mysqli_prepare($conn, "INSERT INTO nguoidung(hoten, email, matkhau) VALUES (?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "sss", $hoten, $email, $hash);
+
+    if(mysqli_stmt_execute($stmt)){
+        set_message("success", "Đăng ký thành công, hãy đăng nhập");
+    }else{
+        set_message("error", "Đăng ký thất bại");
+    }
+}
+
+/* ĐĂNG NHẬP */
+if(isset($_POST['dangnhap'])){
+    $email = trim($_POST['email']);
+    $matkhau = $_POST['matkhau'];
+
+    if($email == "" || $matkhau == ""){
+        set_message("error", "Vui lòng nhập email và mật khẩu");
+    }
+
+    if(!is_tnut_email($email)){
+        set_message("error", "Email phải có đuôi @tnut.edu.vn");
+    }
+
+    $stmt = mysqli_prepare($conn, "SELECT * FROM nguoidung WHERE email = ?");
+    mysqli_stmt_bind_param($stmt, "s", $email);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+
+    if(mysqli_num_rows($result) == 0){
+        set_message("error", "Email chưa tồn tại trong hệ thống");
+    }
+
+    $user = mysqli_fetch_assoc($result);
+
+    if(!password_verify($matkhau, $user['matkhau'])){
+        set_message("error", "Mật khẩu không đúng");
+    }
+
+    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['hoten'] = $user['hoten'];
+    $_SESSION['email'] = $user['email'];
+
+    $_SESSION['dangnhap'] = $user['hoten'];
+
+    header("Location: dashboard.php");
+    exit();
+}
+
+/* QUÊN MẬT KHẨU */
+if(isset($_POST['quenmatkhau'])){
+    $email = trim($_POST['email']);
+
+    if($email == ""){
+        set_message("error", "Vui lòng nhập email khôi phục");
+    }
+
+    if(!is_tnut_email($email)){
+        set_message("error", "Email phải có đuôi @tnut.edu.vn");
+    }
+
+    $stmt = mysqli_prepare($conn, "SELECT id FROM nguoidung WHERE email = ?");
+    mysqli_stmt_bind_param($stmt, "s", $email);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+
+    if(mysqli_num_rows($result) == 0){
+        set_message("error", "Email chưa tồn tại trong hệ thống");
+    }
+
+    /*
+        TODO: Tích hợp PHPMailer/SMTP tại đây sau này.
+        Không gửi mật khẩu trực tiếp.
+        Nên gửi link đặt lại mật khẩu về email gốc.
+    */
+
+    set_message("success", "Thông tin khôi phục đã được gửi về email gốc");
+}
+
+$message = $_SESSION['message'] ?? null;
+unset($_SESSION['message']);
+?>
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Đăng nhập hệ thống</title>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:"Segoe UI", Arial, sans-serif;
+}
+
+body{
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    overflow:hidden;
+    background:
+        linear-gradient(rgba(0,0,0,.18), rgba(0,0,0,.30)),
+        url("https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80");
+    background-size:cover;
+    background-position:center;
+}
+
+body::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(255,255,255,.24), transparent 26%),
+        radial-gradient(circle at 80% 80%, rgba(255,196,87,.18), transparent 24%);
+    backdrop-filter:blur(2px);
+}
+
+.clock{
+    position:absolute;
+    top:24px;
+    right:34px;
+    color:white;
+    font-weight:600;
+    text-shadow:0 3px 10px rgba(0,0,0,.45);
+    z-index:3;
+}
+
+.auth-card{
+    width:430px;
+    padding:38px 36px;
+    border-radius:28px;
+    position:relative;
+    z-index:5;
+    text-align:center;
+    color:white;
+    background:rgba(255,255,255,.18);
+    border:1px solid rgba(255,255,255,.45);
+    backdrop-filter:blur(20px);
+    box-shadow:0 35px 80px rgba(0,0,0,.42);
+    animation:cardShow .7s ease;
+}
+
+.avatar{
+    width:105px;
+    height:105px;
+    margin:0 auto 22px;
+    border-radius:50%;
+    background:rgba(255,255,255,.85);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-size:54px;
+    box-shadow:0 14px 30px rgba(0,0,0,.30);
+}
+
+h1{
+    font-size:30px;
+    line-height:1.25;
+    margin-bottom:22px;
+    text-shadow:0 3px 12px rgba(0,0,0,.45);
+}
+
+.tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:18px;
+}
+
+.tabs button{
+    flex:1;
+    padding:10px 6px;
+    border:none;
+    border-radius:12px;
+    color:white;
+    background:rgba(255,255,255,.18);
+    font-weight:700;
+    cursor:pointer;
+    transition:.3s;
+}
+
+.tabs button.active{
+    background:linear-gradient(135deg,#ffd766,#d28c00);
+    color:#1f1f1f;
+}
+
+.form{
+    display:none;
+}
+
+.form.active{
+    display:block;
+}
+
+.input-box{
+    position:relative;
+    margin-bottom:14px;
+}
+
+.input-box span{
+    position:absolute;
+    left:15px;
+    top:50%;
+    transform:translateY(-50%);
+    font-size:17px;
+}
+
+.input-box input{
+    width:100%;
+    padding:14px 15px 14px 45px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.45);
+    background:rgba(255,255,255,.80);
+    color:#222;
+    outline:none;
+}
+
+.btn-main{
+    width:100%;
+    padding:15px;
+    border:none;
+    border-radius:13px;
+    margin-top:8px;
+    background:linear-gradient(135deg,#ffe36b,#d99300);
+    font-size:17px;
+    font-weight:800;
+    cursor:pointer;
+    color:#222;
+    box-shadow:0 12px 25px rgba(217,147,0,.35);
+    transition:.3s;
+    position:relative;
+    overflow:visible;
+}
+
+.btn-main:hover{
+    transform:translateY(-4px) scale(1.02);
+    box-shadow:0 16px 35px rgba(217,147,0,.48);
+}
+
+.message{
+    padding:11px;
+    border-radius:12px;
+    margin-bottom:15px;
+    font-weight:600;
+}
+
+.success{
+    background:rgba(22,163,74,.9);
+}
+
+.error{
+    background:rgba(239,68,68,.9);
+}
+
+.note{
+    margin-top:15px;
+    font-size:13px;
+    color:rgba(255,255,255,.85);
+}
+
+.footer{
+    position:absolute;
+    bottom:18px;
+    z-index:3;
+    color:white;
+    font-size:14px;
+    text-shadow:0 2px 8px rgba(0,0,0,.45);
+}
+
+.bubble{
+    position:absolute;
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:white;
+    opacity:.9;
+    pointer-events:none;
+    animation:bubbleUp 1s ease forwards;
+}
+
+@keyframes cardShow{
+    from{
+        opacity:0;
+        transform:translateY(30px) scale(.96);
+    }
+    to{
+        opacity:1;
+        transform:translateY(0) scale(1);
+    }
+}
+
+@keyframes bubbleUp{
+    from{
+        opacity:1;
+        transform:translateY(0) scale(1);
+    }
+    to{
+        opacity:0;
+        transform:translateY(-85px) scale(.2);
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="clock" id="clock"></div>
+
+<div class="auth-card">
+
+    <div class="avatar">👤</div>
+
+    <h1>HỆ THỐNG QUẢN LÝ<br>CÔNG VĂN</h1>
+
+    <?php if($message){ ?>
+        <div class="message <?php echo $message['type']; ?>">
+            <?php echo $message['text']; ?>
+        </div>
+    <?php } ?>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showForm('login', this)">Đăng nhập</button>
+        <button class="tab" onclick="showForm('register', this)">Đăng ký</button>
+        <button class="tab" onclick="showForm('forgot', this)">Quên MK</button>
+    </div>
+
+    <form method="POST" class="form active" id="login">
+        <div class="input-box">
+            <span>👤</span>
+            <input type="email" name="email" placeholder="Email @tnut.edu.vn" required>
+        </div>
+
+        <div class="input-box">
+            <span>🔒</span>
+            <input type="password" name="matkhau" placeholder="Mật khẩu" required>
+        </div>
+
+        <button type="submit" name="dangnhap" class="btn-main">ĐĂNG NHẬP</button>
+    </form>
+
+    <form method="POST" class="form" id="register">
+        <div class="input-box">
+            <span>👤</span>
+            <input type="text" name="hoten" placeholder="Họ và tên" required>
+        </div>
+
+        <div class="input-box">
+            <span>📧</span>
+            <input type="email" name="email" placeholder="Email @tnut.edu.vn" required>
+        </div>
+
+        <div class="input-box">
+            <span>🔒</span>
+            <input type="password" name="matkhau" placeholder="Mật khẩu" required>
+        </div>
+
+        <div class="input-box">
+            <span>🔁</span>
+            <input type="password" name="nhaplai" placeholder="Nhập lại mật khẩu" required>
+        </div>
+
+        <button type="submit" name="dangky" class="btn-main">ĐĂNG KÝ</button>
+    </form>
+
+    <form method="POST" class="form" id="forgot">
+        <div class="input-box">
+            <span>📧</span>
+            <input type="email" name="email" placeholder="Email khôi phục" required>
+        </div>
+
+        <button type="submit" name="quenmatkhau" class="btn-main">GỬI KHÔI PHỤC</button>
+    </form>
+
+    <div class="note">
+        Chỉ sử dụng email thuộc hệ thống @tnut.edu.vn
+    </div>
+
+</div>
+
+<div class="footer">
+    © 2026 Hệ Thống Quản Lý Công Văn
+</div>
+
+<script>
+function showForm(id, btn){
+    document.querySelectorAll(".form").forEach(f => f.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+
+    document.getElementById(id).classList.add("active");
+    btn.classList.add("active");
+}
+
+function updateClock(){
+    const now = new Date();
+    const time = now.toLocaleTimeString("vi-VN", {
+        hour:"2-digit",
+        minute:"2-digit"
+    });
+
+    const date = now.toLocaleDateString("vi-VN");
+
+    document.getElementById("clock").innerHTML = time + " | " + date;
+}
+
+setInterval(updateClock, 1000);
+updateClock();
+
+document.querySelectorAll(".btn-main").forEach(btn => {
+    btn.addEventListener("mouseenter", () => {
+        for(let i = 0; i < 10; i++){
+            const bubble = document.createElement("span");
+            bubble.className = "bubble";
+
+            bubble.style.left = Math.random() * btn.offsetWidth + "px";
+            bubble.style.top = Math.random() * btn.offsetHeight + "px";
+            bubble.style.animationDelay = Math.random() * .15 + "s";
+
+            btn.appendChild(bubble);
+
+            setTimeout(() => bubble.remove(), 1000);
+        }
+    });
+});
+</script>
+
+</body>
+</html>
